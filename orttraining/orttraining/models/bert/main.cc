@@ -156,7 +156,9 @@ Status ParseArguments(int argc, char* argv[], BertParameters& params, OrtParamet
       ("pipeline_parallel_size", "Number of pipeline stages.", cxxopts::value<int>()->default_value("1"))
       ("pipeline_stage_paths", "Specify the forward ONNX files for pipeline evaluation.", cxxopts::value<std::vector<std::string>>()->default_value(""))
       ("enable_grad_norm_clip", "Specify whether to enable gradient clipping for optimizers.",
-        cxxopts::value<bool>()->default_value("true"));
+        cxxopts::value<bool>()->default_value("true"))
+      ("min_memory_swap_gaps", "Specify topological gaps between FW and BW to eanble memory swap. 0 to disable",
+        cxxopts::value<int>()->default_value("0"));
   options
     .add_options("ORT configuration")
       ("ort_log_severity", "ORT minimum logging severity (see onnxruntime::logging::Severity values)",
@@ -320,6 +322,7 @@ Status ParseArguments(int argc, char* argv[], BertParameters& params, OrtParamet
 
     params.partition_optimizer = flags["partition_optimizer"].as<bool>();
     params.enable_grad_norm_clip = flags["enable_grad_norm_clip"].as<bool>();
+    params.min_memory_swap_gaps = flags["min_memory_swap_gaps"].as<int>();
     float alpha = flags["alpha"].as<float>();
     float beta = flags["beta"].as<float>();
     float lambda = flags["lambda"].as<float>();

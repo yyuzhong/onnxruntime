@@ -30,9 +30,9 @@ class TrainingRunner {
 
     PathString train_data_dir;
     PathString test_data_dir;
-    PathString output_dir;  // Output of training, e.g., trained model files.
-    PathString perf_output_dir; // training perf metrics
-    std::string model_type; // bert/gpt2/...
+    PathString output_dir;       // Output of training, e.g., trained model files.
+    PathString perf_output_dir;  // training perf metrics
+    std::string model_type;      // bert/gpt2/...
 
     LossFunctionInfo loss_func_info;
 
@@ -157,11 +157,14 @@ class TrainingRunner {
     // pipeline_parallel_size == 1 means pipeline is disabled.
     int pipeline_parallel_size = 1;
     // model_paths[i] is the name of the pipeline stage for i-th process.
-    // The i-th file is run by the i-th MPI rank. 
+    // The i-th file is run by the i-th MPI rank.
     // If model_paths is not empty, model partition transformation may not be internally invoked.
     VectorString pipeline_stage_paths;
     // Enable gradient clipping.
     bool enable_grad_norm_clip = true;
+
+    // gaps in topological sort order for FW/BW memory swap. 0 to disable
+    int min_memory_swap_gaps = 0;
   };
 
   TrainingRunner(Parameters params, const Environment& env);
@@ -169,8 +172,8 @@ class TrainingRunner {
 
   common::Status Initialize();
 
-  common::Status Run(IDataLoader* training_data_loader, IDataLoader* test_data_loader, 
-    const MapStringToString& mapped_dimensions = {});
+  common::Status Run(IDataLoader* training_data_loader, IDataLoader* test_data_loader,
+                     const MapStringToString& mapped_dimensions = {});
 
   common::Status EndTraining(IDataLoader* data_loader);
 
@@ -182,7 +185,9 @@ class TrainingRunner {
   TrainingSession& GetSession() { return session_; }
 
  private:
-  enum SessionMode: int {ModelUpdateStep, GradientAccumulateStep, EvaluateStep};
+  enum SessionMode : int { ModelUpdateStep,
+                           GradientAccumulateStep,
+                           EvaluateStep };
   Status PrepareFeedNamesAndFeeds(const SessionMode mode,
                                   IDataLoader& training_data_loader,
                                   DataSet& training_data,
@@ -196,13 +201,13 @@ class TrainingRunner {
   Status RunWithUpdate(VectorString& feed_names,
                        VectorString& fetch_names,
                        std::vector<MLValue>& feeds,
-                       std::vector<MLValue>& fetches); 
+                       std::vector<MLValue>& fetches);
   Status RunWithoutUpdate(VectorString& feed_names,
                           VectorString& fetch_names,
                           std::vector<MLValue>& feeds,
-                          size_t& gradient_accumulation_step_count); 
-  Status TrainingLoop(IDataLoader& training_data_loader, IDataLoader* test_data_loader, 
-    const MapStringToString& mapped_dimensions);
+                          size_t& gradient_accumulation_step_count);
+  Status TrainingLoop(IDataLoader& training_data_loader, IDataLoader* test_data_loader,
+                      const MapStringToString& mapped_dimensions);
   Status Evaluate(InferenceSession& session, IDataLoader& data_loader);
 
   Status SaveCheckpoint(const PathString& checkpoint_path);
@@ -229,7 +234,7 @@ class TrainingRunner {
   AllocatorPtr input_allocator_;
 
   std::unique_ptr<CheckpointRegistry> checkpoint_registry_;
-  
+
   // Pipeline fields are valid only if params_.pipeline_parallel_size > 1.
   // Information for running pipeline.
   pipeline::PipelineContext pipeline_context_;
