@@ -5,7 +5,7 @@ set(NODEJS_BINDING_ROOT ${REPO_ROOT}/nodejs)
 if (WIN32)
     set(NPM_CLI cmd /c npm)
 else()
-    set(NPM_CLI sh npm)
+    set(NPM_CLI npm)
 endif()
 
 # verify Node.js and NPM
