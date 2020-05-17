@@ -45,11 +45,11 @@ if (WIN32)
     ${ONNXRUNTIME_BUILD_DIR}/${CMAKE_BUILD_TYPE}/onnxruntime.lib)
 elseif (APPLE)
   target_link_libraries(onnxruntime_binding PRIVATE
-    ${ONNXRUNTIME_BUILD_DIR}/${CMAKE_BUILD_TYPE}/libonnxruntime.${ort_version}.dylib)
+    ${ONNXRUNTIME_BUILD_DIR}/libonnxruntime.${ort_version}.dylib)
   set_target_properties(onnxruntime_binding PROPERTIES INSTALL_RPATH "@loader_path")
 else()
   target_link_libraries(onnxruntime_binding PRIVATE
-    ${ONNXRUNTIME_BUILD_DIR}/${CMAKE_BUILD_TYPE}/libonnxruntime.so.${ort_version})
+    ${ONNXRUNTIME_BUILD_DIR}/libonnxruntime.so.${ort_version})
   set_target_properties(onnxruntime_binding PROPERTIES INSTALL_RPATH "$ORIGIN/")
 endif()
 
@@ -81,14 +81,14 @@ elseif (APPLE)
   add_custom_command(
     TARGET onnxruntime_binding POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
-      ${ONNXRUNTIME_BUILD_DIR}/${CMAKE_BUILD_TYPE}/libonnxruntime.${ort_version}.dylib
+      ${ONNXRUNTIME_BUILD_DIR}/libonnxruntime.${ort_version}.dylib
       ${dist_folder}
   )
 elseif (UNIX)
   add_custom_command(
     TARGET onnxruntime_binding POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
-      ${ONNXRUNTIME_BUILD_DIR}/${CMAKE_BUILD_TYPE}/libonnxruntime.so.${ort_version}
+      ${ONNXRUNTIME_BUILD_DIR}/libonnxruntime.so.${ort_version}
       ${dist_folder}
   )
 else()
