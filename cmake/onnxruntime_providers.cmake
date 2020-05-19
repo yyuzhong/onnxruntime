@@ -6,10 +6,10 @@ file(GLOB_RECURSE onnxruntime_providers_srcs CONFIGURE_DEPENDS
   "${ONNXRUNTIME_ROOT}/core/providers/cpu/*.cc"
 )
 
-file(GLOB_RECURSE onnxruntime_cpu_contrib_ops_srcs CONFIGURE_DEPENDS
-  "${ONNXRUNTIME_ROOT}/contrib_ops/cpu/*.h"
-  "${ONNXRUNTIME_ROOT}/contrib_ops/cpu/*.cc"
-)
+#file(GLOB_RECURSE onnxruntime_cpu_contrib_ops_srcs CONFIGURE_DEPENDS
+#  "${ONNXRUNTIME_ROOT}/contrib_ops/cpu/*.h"
+#  "${ONNXRUNTIME_ROOT}/contrib_ops/cpu/*.cc"
+#)
 
 file(GLOB_RECURSE onnxruntime_cuda_contrib_ops_cc_srcs CONFIGURE_DEPENDS
   "${ONNXRUNTIME_ROOT}/contrib_ops/cuda/*.h"

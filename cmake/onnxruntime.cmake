@@ -9,7 +9,6 @@ else()
   set(OUTPUT_STYLE vc)
 endif()
 
-
 #If you want to verify if there is any extra line in symbols.txt, run
 # nm -C -g --defined libonnxruntime.so |grep -v '\sA\s' | cut -f 3 -d ' ' | sort
 # after build
@@ -66,6 +65,11 @@ if (NOT WIN32)
   else()
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-rpath='$ORIGIN'")
   endif()
+endif()
+
+if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
+  set_target_properties(onnxruntime PROPERTIES LINK_FLAGS_RELEASE -s)
+  set_target_properties(onnxruntime PROPERTIES LINK_FLAGS_MINSIZEREL -s)
 endif()
 
 target_link_libraries(onnxruntime PRIVATE
