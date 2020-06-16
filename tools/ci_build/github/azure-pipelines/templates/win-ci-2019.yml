@@ -228,12 +228,23 @@ jobs:
           filename: 'C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat'
           arguments: ${{ parameters.BuildArch }}
           modifyEnvironment: true
+
+      - script: |
+         xcopy /E /I $(Build.SourcesDirectory)\nodejs\bin\napi-v3\win32\x64 $(Build.ArtifactStagingDirectory)\origin
+        workingDirectory: '$(Build.SourcesDirectory)\nodejs'
+        displayName: 'publish unsigned DLLs'
+
       - template: win-esrp-dll.yml
         parameters:
           FolderPath: '$(Build.SourcesDirectory)\nodejs\bin\napi-v3\win32\x64'
           DisplayName: 'ESRP - Sign Node.js binding binaries'
           DoEsrp: ${{ parameters.DoEsrp }}
           Pattern: '*.dll,*.node'
+
+      - script: |
+         xcopy /E /I $(Build.SourcesDirectory)\nodejs\bin\napi-v3\win32\x64 $(Build.ArtifactStagingDirectory)\signed
+        workingDirectory: '$(Build.SourcesDirectory)\nodejs'
+        displayName: 'publish signed DLLs'
 
       - script: |
          del /Q $(Build.SourcesDirectory)\nodejs\bin\napi-v3\win32\x64\CodeSignSummary-*.*
