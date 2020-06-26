@@ -354,10 +354,12 @@ void Shaper::UpdateShape(const std::string& name, const Shape& new_shape) {
               "Cannot UpdateShape while shaper is not finalized");
 
   const auto& old_shape = shape_map_.at(name);
-  if (old_shape != new_shape && Product(shape_map_.at(name)) != 0)
-    ORT_THROW("The shape should be same size or old shape has size 0");
+  if (old_shape != new_shape) {
+    if (Product(old_shape) != 0)
+      ORT_THROW("The shape should be same size or old shape has size 0 (dynamic shape)");
 
-  shape_map_[name] = new_shape;
+    shape_map_[name] = new_shape;
+  }
 }
 
 void Shaper::UpdateDynamicDimensions() {
