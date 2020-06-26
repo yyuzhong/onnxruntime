@@ -66,12 +66,12 @@ NnapiExecutionProvider::GetCapability(const onnxruntime::GraphViewer& graph_view
   onnxruntime::Graph& graph_build = model.MainGraph();
   for (const auto& node : graph_view.Nodes()) {
     std::vector<onnxruntime::NodeArg*> inputs, outputs;
-    for (auto input : node.InputDefs()) {
+    for (auto* input : node.InputDefs()) {
       auto& n_input = graph_build.GetOrCreateNodeArg(input->Name(), input->TypeAsProto());
       inputs.push_back(&n_input);
       all_node_inputs.insert(input->Name());
     }
-    for (auto output : node.OutputDefs()) {
+    for (auto* output : node.OutputDefs()) {
       auto& n_output = graph_build.GetOrCreateNodeArg(output->Name(), output->TypeAsProto());
       outputs.push_back(&n_output);
     }
@@ -113,9 +113,9 @@ NnapiExecutionProvider::GetCapability(const onnxruntime::GraphViewer& graph_view
 
     for (const auto& index : group) {
       sub_graph->nodes.push_back(node_index[index]);
-      const auto node = graph_view.GetNode(node_index[index]);
+      const auto* node = graph_view.GetNode(node_index[index]);
 
-      for (const auto& input : node->InputDefs()) {
+      for (const auto* input : node->InputDefs()) {
         const auto it = fused_outputs.find(input);
         if (it != fused_outputs.end()) {
           fused_outputs.erase(it);
@@ -135,7 +135,7 @@ NnapiExecutionProvider::GetCapability(const onnxruntime::GraphViewer& graph_view
       std::unordered_set<const NodeArg*> processed_outputs;
       for (auto it = node->OutputEdgesBegin(), end = node->OutputEdgesEnd(); it != end; ++it) {
         const auto node_idx = it->GetNode().Index();
-        const auto output = node->OutputDefs()[it->GetSrcArgIndex()];
+        const auto* output = node->OutputDefs()[it->GetSrcArgIndex()];
 
         if (node_set.find(node_idx) != node_set.end()) {
           const auto iter = fused_inputs.find(output);
@@ -152,7 +152,7 @@ NnapiExecutionProvider::GetCapability(const onnxruntime::GraphViewer& graph_view
         processed_outputs.insert(output);
       }
 
-      for (const auto& output : node->OutputDefs()) {
+      for (const auto* output : node->OutputDefs()) {
         if (processed_outputs.find(output) != processed_outputs.end())
           continue;
 
@@ -207,13 +207,6 @@ NnapiExecutionProvider::GetCapability(const onnxruntime::GraphViewer& graph_view
   }
 
   return result;
-}
-
-std::string GetShape(const std::vector<uint32_t>& dimensions) {
-  std::string ret = "";
-  for (auto dim : dimensions)
-    ret += std::to_string(dim) + " ";
-  return "[" + ret + "]";
 }
 
 common::Status NnapiExecutionProvider::Compile(const std::vector<onnxruntime::Node*>& fused_nodes,
