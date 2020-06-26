@@ -228,6 +228,8 @@ common::Status NnapiExecutionProvider::Compile(const std::vector<onnxruntime::No
 
     {
       nnapi::ModelBuilder builder(model_proto);
+      builder.SetUseNCHW(false);
+      builder.SetUseFp16(false);
       std::unique_ptr<nnapi::Model> nnapi_model = builder.Compile();
 
       // Build map from input name to its index in input definitions
@@ -268,8 +270,6 @@ common::Status NnapiExecutionProvider::Compile(const std::vector<onnxruntime::No
 
     compute_info.compute_func = [](FunctionState state, const OrtCustomOpApi* api, OrtKernelContext* context) {
       Ort::CustomOpApi ort{*api};
-
-      // TODO[VSO:798241], need to have exclusive access to the model within the scope of this compute_func
       nnapi::Model* model = reinterpret_cast<nnapi::Model*>(state);
       const size_t num_inputs = ort.KernelContext_GetInputCount(context);
       const size_t num_outputs = ort.KernelContext_GetOutputCount(context);
@@ -309,44 +309,49 @@ common::Status NnapiExecutionProvider::Compile(const std::vector<onnxruntime::No
         ort.ReleaseTensorTypeAndShapeInfo(tensor_info);
       }
 
-      model->SetInputBuffers(inputs);
-      std::vector<nnapi::Model::OutputBuffer> outputs;
-      outputs.reserve(num_outputs);
-      for (size_t i = 0; i < num_outputs; i++) {
-        const auto output_name = model->GetOutputs()[i];
-        const auto model_output_type = model->GetOutputType(output_name);
-        const auto output_shape = model_output_type.dimensions;
+      // From this point we will need to take the exclusive lock on the model until the Predict is
+      // performed, to block other threads (if any) to modify this particular model
+      {
+        std::unique_lock<OrtMutex> lock(model->GetMutex());
+        model->SetInputBuffers(inputs);
+        std::vector<nnapi::Model::OutputBuffer> outputs;
+        outputs.reserve(num_outputs);
+        for (size_t i = 0; i < num_outputs; i++) {
+          const auto output_name = model->GetOutputs()[i];
+          const auto model_output_type = model->GetOutputType(output_name);
+          const auto output_shape = model_output_type.dimensions;
 
-        std::vector<int64_t> int64_output_shape(output_shape.begin(),
-                                                output_shape.end());
-        auto output_idx = model->GetMappedOutputIdx(output_name);
-        auto* output_tensor = ort.KernelContext_GetOutput(context, output_idx,
-                                                          int64_output_shape.data(),
-                                                          int64_output_shape.size());
+          std::vector<int64_t> int64_output_shape(output_shape.begin(),
+                                                  output_shape.end());
+          auto output_idx = model->GetMappedOutputIdx(output_name);
+          auto* output_tensor = ort.KernelContext_GetOutput(context, output_idx,
+                                                            int64_output_shape.data(),
+                                                            int64_output_shape.size());
 
-        void* output_buffer = nullptr;
-        switch (model_output_type.type) {
-          case Type::TENSOR_FLOAT32:
-            output_buffer = ort.GetTensorMutableData<float>(output_tensor);
-            break;
-          case Type::TENSOR_INT32:
-            output_buffer = ort.GetTensorMutableData<int32_t>(output_tensor);
-            break;
-          default:
-            ORT_THROW("Unsupported output type: " + TypeToStr(model_output_type.type));
-            break;
+          void* output_buffer = nullptr;
+          switch (model_output_type.type) {
+            case Type::TENSOR_FLOAT32:
+              output_buffer = ort.GetTensorMutableData<float>(output_tensor);
+              break;
+            case Type::TENSOR_INT32:
+              output_buffer = ort.GetTensorMutableData<int32_t>(output_tensor);
+              break;
+            default:
+              return Status(common::ONNXRUNTIME, common::FAIL,
+                            "Unsupported output type: " + TypeToStr(model_output_type.type));
+              break;
+          }
+
+          if (model_output_type.GetOperandBlobByteSize() == 0) {
+            return Status(common::ONNXRUNTIME, common::FAIL, "We do not support dynamic output shape for now");
+          }
+
+          outputs.push_back({output_buffer, std::move(model_output_type)});
         }
 
-        if (model_output_type.GetOperandBlobByteSize() == 0) {
-          return Status(common::ONNXRUNTIME, common::FAIL, "We do not support dynamic output shape for now");
-        }
-
-        outputs.push_back({output_buffer, std::move(model_output_type)});
+        model->SetOutputBuffers(outputs);
+        model->Predict();
       }
-
-      model->SetOutputBuffers(outputs);
-
-      model->Predict();
 
       return Status::OK();
     };

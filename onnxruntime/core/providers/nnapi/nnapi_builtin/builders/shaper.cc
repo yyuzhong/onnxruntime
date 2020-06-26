@@ -345,6 +345,31 @@ void Shaper::FC(const std::string& input1_name, const std::string& input2_name,
   }
 }
 
+void Shaper::Concat(const std::vector<std::string>& inputs,
+                    const int32_t axis,
+                    const std::string& output) {
+  std::vector<Shape> dimens;
+  for (const auto& input : inputs) {
+    auto& dimen = shape_map_.at(input);
+    if (!dimens.empty()) {
+      for (size_t i = 0; i < dimens[0].size(); i++) {
+        if ((int32_t)i == axis)
+          continue;
+
+        ORT_ENFORCE(dimen[i] == dimens[0][i], "Wrong input for concat");
+      }
+    }
+
+    dimens.push_back(shape_map_.at(input));
+  }
+
+  auto output_dimen = dimens[0];
+  for (size_t i = 1; i < dimens.size(); i++) {
+    output_dimen[axis] += dimens[i][axis];
+  }
+  shape_map_[output] = output_dimen;
+}
+
 void Shaper::AddShape(const std::string& name, const Shape& shape) {
   shape_map_[name] = shape;
 }
@@ -374,4 +399,14 @@ void Shaper::Clear() {
   shaper_finalized_ = false;
   shape_map_.clear();
   shape_ops_.clear();
+}
+
+std::string Shape2String(const Shaper::Shape& shape) {
+  std::ostringstream os;
+  os << "[ ";
+  for (const auto& dim : shape)
+    os << dim << " ";
+
+  os << "]";
+  return os.str();
 }
