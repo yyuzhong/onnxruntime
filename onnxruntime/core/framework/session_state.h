@@ -145,6 +145,8 @@ class SessionState {
   */
   void CleanInitializedTensorsFromGraph();
 
+  Status PrePackConstantTensors();
+
 #ifdef ENABLE_TRAINING
   /**
   Get some initialized tensors (weights).

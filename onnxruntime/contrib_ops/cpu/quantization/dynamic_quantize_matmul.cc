@@ -51,8 +51,6 @@ static void GetQuantizationParameter(const float* data, int64_t num_of_elements,
 template <typename T>
 Status DynamicQuantizeMatMul<T>::Compute(OpKernelContext* ctx) const {
   auto* a = ctx->Input<Tensor>(0);
-  auto* b = ctx->Input<Tensor>(1);
-  ORT_ENFORCE(a != nullptr && b != nullptr);
 
   auto* b_scale_tensor = ctx->Input<Tensor>(2);
   ORT_ENFORCE(IsScalarOr1ElementVector(b_scale_tensor),
@@ -83,10 +81,12 @@ Status DynamicQuantizeMatMul<T>::Compute(OpKernelContext* ctx) const {
   // quantize the data
   MlasQuantizeLinear(a_data, a_data_quant, num_of_elements, a_scale, a_zp);
 
-  MatMulComputeHelper helper;
-  ORT_RETURN_IF_ERROR(helper.Compute(a->Shape(), b->Shape()));
+  const Tensor* b = m_b_data != nullptr ? nullptr : ctx->Input<Tensor>(1);
 
-  const auto* b_data = b->template Data<T>();
+  MatMulComputeHelper helper;
+  ORT_RETURN_IF_ERROR(helper.Compute(a->Shape(), b != nullptr ? b->Shape() : m_b_shape));
+
+  const T* b_data = b != nullptr ? b->template Data<T>() : static_cast<T*>(m_b_data.get());
 
   Tensor* y = ctx->Output(0, helper.OutputShape());
   auto* y_data = y->template MutableData<float>();
