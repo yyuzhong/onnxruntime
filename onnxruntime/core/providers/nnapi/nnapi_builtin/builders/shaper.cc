@@ -6,6 +6,56 @@
 using std::string;
 using std::vector;
 
+int32_t GetTotalPadding(int32_t input_size,
+                        int32_t weight_size,
+                        int32_t stride,
+                        int32_t dilation) {
+  int32_t out_size = (input_size + stride - 1) / stride;
+  int32_t effective_filter_size = (weight_size - 1) * dilation + 1;
+  int32_t needed_input = (out_size - 1) * stride + effective_filter_size;
+  return std::max(0, needed_input - input_size);
+}
+
+const std::vector<int32_t> Shaper::GetOnnxConvPads(const std::string& input_name,
+                                                   const std::string& weight_name,
+                                                   const std::string& auto_pad,
+                                                   const std::vector<int32_t>& onnx_strides,
+                                                   const std::vector<int32_t>& onnx_dilations,
+                                                   bool nchw) {
+  std::vector<int32_t> onnx_pads = {0, 0, 0, 0};
+  if (auto_pad == "VALID")
+    return onnx_pads;
+
+  Shape input_dimen = shape_map_.at(input_name);
+  Shape weight_dimen = shape_map_.at(weight_name);  // num_output, height, width, num_input
+
+  const auto input_size_x = static_cast<int32_t>(nchw ? input_dimen[3] : input_dimen[2]);
+  const auto input_size_y = static_cast<int32_t>(nchw ? input_dimen[2] : input_dimen[1]);
+
+  const auto weight_size_y = static_cast<int32_t>(weight_dimen[1]);
+  const auto weight_size_x = static_cast<int32_t>(weight_dimen[2]);
+
+  const int32_t stride_y = onnx_strides[0];
+  const int32_t stride_x = onnx_strides[1];
+  const int32_t dilation_y = onnx_dilations[0];
+  const int32_t dilation_x = onnx_dilations[1];
+
+  const int32_t total_padding_y = GetTotalPadding(input_size_y, weight_size_y, stride_y, dilation_y);
+  const int32_t total_padding_x = GetTotalPadding(input_size_x, weight_size_x, stride_x, dilation_x);
+
+  int32_t small_pad_y = total_padding_y / 2;
+  int32_t big_pad_y = total_padding_y - small_pad_y;
+  int32_t small_pad_x = total_padding_x / 2;
+  int32_t big_pad_x = total_padding_x - small_pad_x;
+
+  if (auto_pad == "SAME_UPPER ")
+    onnx_pads = {small_pad_y, small_pad_x, big_pad_y, big_pad_x};
+  else  // SAME_LOWER
+    onnx_pads = {big_pad_y, big_pad_x, small_pad_y, small_pad_x};
+
+  return onnx_pads;
+}
+
 void Shaper::Conv(const std::string& input_name,
                   const std::string& weight_name,
                   const vector<int32_t>& onnx_pads,
@@ -13,8 +63,7 @@ void Shaper::Conv(const std::string& input_name,
                   const vector<int32_t>& onnx_dilations,
                   bool nchw,
                   const std::string& output_name) {
-  Shape weight_dimen =
-      shape_map_.at(weight_name);  // num_output, height, width, num_input
+  Shape weight_dimen = shape_map_.at(weight_name);  // num_output, height, width, num_input
 
   int32_t padding_left = onnx_pads[1];
   int32_t padding_right = onnx_pads[3];
@@ -25,48 +74,29 @@ void Shaper::Conv(const std::string& input_name,
   int32_t dilation_x = onnx_dilations[1];
   int32_t dilation_y = onnx_dilations[0];
 
-  // NHWC
   Shape input_dimen = shape_map_.at(input_name);
-  Shape outputDimen;
-  if (nchw) {
-    outputDimen =
-        {
-            input_dimen[0],
-            weight_dimen[0],
-            input_dimen[2] == 0
-                ? 0
-                : (input_dimen[2] - ((weight_dimen[1] - 1) * dilation_y + 1) +
-                   padding_top + padding_bottom) /
-                          stride_y +
-                      1,
-            input_dimen[3] == 0
-                ? 0
-                : (input_dimen[3] - ((weight_dimen[2] - 1) * dilation_x + 1) +
-                   padding_left + padding_right) /
-                          stride_x +
-                      1,
-        };
-  } else {  // nhwc
-    outputDimen =
-        {
-            input_dimen[0],
-            input_dimen[1] == 0
-                ? 0
-                : (input_dimen[1] - ((weight_dimen[1] - 1) * dilation_y + 1) +
-                   padding_top + padding_bottom) /
-                          stride_y +
-                      1,
-            input_dimen[2] == 0
-                ? 0
-                : (input_dimen[2] - ((weight_dimen[2] - 1) * dilation_x + 1) +
-                   padding_left + padding_right) /
-                          stride_x +
-                      1,
-            weight_dimen[0],
-        };
-  }
+  const auto input_size_y = nchw ? input_dimen[2] : input_dimen[1];
+  const auto input_size_x = nchw ? input_dimen[3] : input_dimen[2];
+  const auto weight_size_y = weight_dimen[1];
+  const auto weight_size_x = weight_dimen[2];
 
-  shape_map_[output_name] = outputDimen;
+  const auto output_size_y =
+      input_size_y == 0
+          ? 0
+          : (input_size_y - ((weight_size_y - 1) * dilation_y + 1) + padding_top + padding_bottom) / stride_y + 1;
+
+  const auto output_size_x =
+      input_size_x == 0
+          ? 0
+          : (input_size_x - ((weight_size_x - 1) * dilation_x + 1) + padding_left + padding_right) / stride_x + 1;
+
+  Shape output_dimen;
+  if (nchw)
+    output_dimen = {input_dimen[0], weight_dimen[0], output_size_y, output_size_x};
+  else  // nhwc
+    output_dimen = {input_dimen[0], output_size_y, weight_size_x, weight_dimen[0]};
+
+  shape_map_[output_name] = output_dimen;
 
   if (!shaper_finalized_) {
     shape_ops_.push_back(
@@ -101,47 +131,28 @@ void Shaper::DepthwiseConv(const std::string& input_name,
   int32_t dilation_x = onnx_dilations[1];
   int32_t dilation_y = onnx_dilations[0];
 
-  // NHWC
-  Shape input_dimen = shape_map_.at(input_name);
-  Shape outputDimen;
-  if (nchw) {
-    outputDimen =
-        {
-            input_dimen[0],
-            weight_dimen[3],
-            input_dimen[2] == 0
-                ? 0
-                : (input_dimen[2] - ((weight_dimen[1] - 1) * dilation_y + 1) +
-                   padding_top + padding_bottom) /
-                          stride_y +
-                      1,
-            input_dimen[3] == 0
-                ? 0
-                : (input_dimen[3] - ((weight_dimen[2] - 1) * dilation_x + 1) +
-                   padding_left + padding_right) /
-                          stride_x +
-                      1,
-        };
-  } else {  // nhwc
-    outputDimen =
-        {
-            input_dimen[0],
-            input_dimen[1] == 0
-                ? 0
-                : (input_dimen[1] - ((weight_dimen[1] - 1) * dilation_y + 1) +
-                   padding_top + padding_bottom) /
-                          stride_y +
-                      1,
-            input_dimen[2] == 0
-                ? 0
-                : (input_dimen[2] - ((weight_dimen[2] - 1) * dilation_x + 1) +
-                   padding_left + padding_right) /
-                          stride_x +
-                      1,
-            weight_dimen[3],
-        };
-  }
-  shape_map_[output_name] = outputDimen;
+  const Shape& input_dimen = shape_map_.at(input_name);
+  const auto input_size_y = nchw ? input_dimen[2] : input_dimen[1];
+  const auto input_size_x = nchw ? input_dimen[3] : input_dimen[2];
+  const auto weight_size_y = weight_dimen[1];
+  const auto weight_size_x = weight_dimen[2];
+  const auto output_size_y =
+      input_size_y == 0
+          ? 0
+          : (input_size_y - ((weight_size_y - 1) * dilation_y + 1) + padding_top + padding_bottom) / stride_y + 1;
+
+  const auto output_size_x =
+      input_size_x == 0
+          ? 0
+          : (input_size_x - ((weight_size_x - 1) * dilation_x + 1) + padding_left + padding_right) / stride_x + 1;
+
+  Shape output_dimen;
+  if (nchw)
+    output_dimen = {input_dimen[0], weight_dimen[3], output_size_y, output_size_x};
+  else  // nhwc
+    output_dimen = {input_dimen[0], output_size_y, output_size_x, weight_dimen[3]};
+
+  shape_map_[output_name] = output_dimen;
 
   if (!shaper_finalized_) {
     shape_ops_.push_back(
@@ -163,42 +174,32 @@ void Shaper::Pool(const std::string& input_name,
                   const std::vector<int32_t>& kernel_shape,
                   bool nchw,
                   const std::string& output_name) {
-  auto input_dimen = shape_map_.at(input_name);
-
   int32_t padding_left = onnx_pads[1];
   int32_t padding_right = onnx_pads[3];
   int32_t padding_top = onnx_pads[0];
   int32_t padding_bottom = onnx_pads[2];
   int32_t stride_x = onnx_strides[1];
   int32_t stride_y = onnx_strides[0];
-  int32_t width = kernel_shape[1];
+
+  const Shape& input_dimen = shape_map_.at(input_name);
+  const auto input_size_y = nchw ? input_dimen[2] : input_dimen[1];
+  const auto input_size_x = nchw ? input_dimen[3] : input_dimen[2];
   int32_t height = kernel_shape[0];
+  int32_t width = kernel_shape[1];
+  const auto output_size_y = input_size_y == 0
+                                 ? 0
+                                 : (input_size_y - height + padding_top + padding_bottom) / stride_y + 1;
+  const auto output_size_x = input_size_x == 0
+                                 ? 0
+                                 : (input_size_x - width + padding_left + padding_right) / stride_x + 1;
 
-  Shape outputDimen;
-  if (nchw) {
-    outputDimen = {
-        input_dimen[0],
-        input_dimen[1],
-        input_dimen[2] == 0
-            ? 0
-            : (input_dimen[2] - height + padding_top + padding_bottom) / stride_y + 1,
-        input_dimen[3] == 0
-            ? 0
-            : (input_dimen[3] - width + padding_left + padding_right) / stride_x + 1,
-    };
-  } else {
-    outputDimen = {
-        input_dimen[0],
-        input_dimen[1] == 0
-            ? 0
-            : (input_dimen[1] - height + padding_top + padding_bottom) / stride_y + 1,
-        input_dimen[2] == 0
-            ? 0
-            : (input_dimen[2] - width + padding_left + padding_right) / stride_x + 1,
-        input_dimen[3]};
-  }
+  Shape output_dimen;
+  if (nchw)
+    output_dimen = {input_dimen[0], input_dimen[1], output_size_y, output_size_x};
+  else
+    output_dimen = {input_dimen[0], output_size_y, output_size_x, input_dimen[3]};
 
-  shape_map_[output_name] = outputDimen;
+  shape_map_[output_name] = output_dimen;
 
   if (!shaper_finalized_) {
     shape_ops_.push_back(

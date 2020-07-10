@@ -13,6 +13,13 @@ class Shaper {
     return shape_map_.at(key);
   }
 
+  const std::vector<int32_t> GetOnnxConvPads(const std::string& input_name,
+                                             const std::string& weight_name,
+                                             const std::string& auto_pad,
+                                             const std::vector<int32_t>& onnx_strides,
+                                             const std::vector<int32_t>& onnx_dilations,
+                                             bool nchw);
+
   void Conv(const std::string& input_name,
             const std::string& weight_name,
             const std::vector<int32_t>& onnx_pads,
