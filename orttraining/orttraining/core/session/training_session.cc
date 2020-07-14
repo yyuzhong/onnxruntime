@@ -235,9 +235,11 @@ Status TrainingSession::ConfigureForTraining(
                                  << weight_names_stream.str();
   }
 
+  Save(PathString("/real_mnt/turing_fw.onnx"), SaveOption::NO_RELOAD);
   ORT_RETURN_IF_ERROR(BuildGradientGraph(
       weight_names_to_train, loss_name, config.gradient_graph_config, config.set_gradients_as_graph_outputs));
 
+  Save(PathString("/real_mnt/turing_bw.onnx"), SaveOption::NO_RELOAD);
   // transform for mixed precision
   std::unordered_map<std::string, NodeArg*> fp32_weight_name_to_fp16_node_arg{};
   if (is_mixed_precision_enabled_) {
