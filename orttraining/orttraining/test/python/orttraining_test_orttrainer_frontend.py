@@ -191,34 +191,16 @@ def testDynamicLossScalerCustomValues():
     assert scaler.up_scale_window == 7
 
 
-@pytest.mark.parametrize("optim_name", [
-    ('AdamOptimizer'),
-    ('LambOptimizer'),
-    ('SGDOptimizer')
-])
-def testLinearLRSchedulerCreation(optim_name):
-    rtol = 1e-03
-    initial_lr = 0.5
+def testLinearLRSchedulerCreation():
     total_steps = 10
     warmup = 0.05
 
-    if optim_name == 'AdamOptimizer':
-        optimizer_config = optim.AdamConfig(lr=initial_lr)
-    elif optim_name == 'LambOptimizer':
-        optimizer_config = optim.LambConfig(lr=initial_lr)
-    elif optim_name == 'SGDOptimizer':
-        optimizer_config = optim.SGDConfig(lr=initial_lr)
-
-    lr_scheduler = optim.lr_scheduler.LinearWarmupLRScheduler(optimizer_config,
-                                                              total_steps,
+    lr_scheduler = optim.lr_scheduler.LinearWarmupLRScheduler(total_steps,
                                                               warmup)
 
     # Initial state
-    assert lr_scheduler.optimizer_config == optimizer_config
     assert lr_scheduler.total_steps == total_steps
     assert lr_scheduler.warmup == warmup
-    assert_allclose(lr_scheduler.optimizer_config.hyper_parameters['lr'],
-                    initial_lr, rtol=rtol, err_msg="lr mismatch")
 
 
 @pytest.mark.parametrize("lr_scheduler,expected_values", [
