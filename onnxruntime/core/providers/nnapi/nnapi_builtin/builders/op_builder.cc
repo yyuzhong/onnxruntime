@@ -779,9 +779,28 @@ class PoolOpBuilder : public BaseOpBuilder {
   void AddToModelBuilderImpl(ModelBuilder& model_builder, const Node& node) override;
 };
 
-bool PoolOpBuilder::IsOpSupportedImpl(ModelBuilder& /* model_builder */, const Node& node) {
-  const auto& op = node.OpType();
-  if (op == "AveragePool" || op == "MaxPool") {
+bool PoolOpBuilder::IsOpSupportedImpl(ModelBuilder& model_builder, const Node& node) {
+  const auto& op_type = node.OpType();
+  const auto android_sdk_ver = model_builder.GetAndroidSdkVer();
+  if (android_sdk_ver < 29 && model_builder.UseNCHW()) {
+    LOGS_DEFAULT(VERBOSE) << op_type << " NCHW is only supported on Android API levle 29+, "
+                          << "actual API level: " << android_sdk_ver;
+    return false;
+  }
+
+  Shape input_shape;
+  if (!GetShape(*node.InputDefs()[0], input_shape))
+    return false;
+
+  const auto input_size = input_shape.size();
+  if (input_size != 4) {
+    LOGS_DEFAULT(VERBOSE)
+        << op_type << " only supportes rank-4 tensor, ["
+        << node.InputDefs()[0]->Name() << "] has actual dim count " << input_size;
+    return false;
+  }
+
+  if (op_type == "AveragePool" || op_type == "MaxPool") {
     NodeAttrHelper helper(node);
 
     const auto count_include_pad = helper.Get("count_include_pad", 0);
@@ -814,18 +833,6 @@ bool PoolOpBuilder::IsOpSupportedImpl(ModelBuilder& /* model_builder */, const N
 
     if (node.OutputDefs().size() != 1) {
       LOGS_DEFAULT(VERBOSE) << "Argmax in maxpooling is not supported";
-      return false;
-    }
-  } else if (op == "GlobalAveragePool" || op == "GlobalMaxPool") {
-    Shape input_shape;
-    if (!GetShape(*node.InputDefs()[0], input_shape))
-      return false;
-
-    const auto input_size = input_shape.size();
-    if (input_size != 4) {
-      LOGS_DEFAULT(VERBOSE)
-          << "GlobalAveragePool/GlobalMaxPool Only rank-4 tensor is supported in "
-          << node.InputDefs()[0]->Name() << ", actual dim count " << input_size;
       return false;
     }
   }
@@ -929,8 +936,8 @@ void PoolOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder, const Nod
   input_indices.push_back(model_builder.AddOperandFromScalar(kernel_shape[0]));
   input_indices.push_back(model_builder.AddOperandFromScalar(fuse_code));
 
-  // TODO support API 28
-  input_indices.push_back(model_builder.AddOperandFromScalar(use_nchw));
+  if (model_builder.GetAndroidSdkVer() > 28)  // nchw only supported on api 29+
+    input_indices.push_back(model_builder.AddOperandFromScalar(use_nchw));
 
   shaper.Pool(input,
               onnx_pads, onnx_strides, kernel_shape,
@@ -951,6 +958,10 @@ class ConvOpBuilder : public BaseOpBuilder {
  private:
   bool IsOpSupportedImpl(ModelBuilder& model_builder, const Node& node) override;
 
+  int32_t GetMinSupportedSdkVer(ModelBuilder& /* model_builder */, const Node& /* node */) const override {
+    return 28;
+  }
+
   void AddToModelBuilderImpl(ModelBuilder& model_builder, const Node& node) override;
 };
 
@@ -960,8 +971,15 @@ void ConvOpBuilder::AddInitializersToSkip(ModelBuilder& model_builder, const Nod
 }
 
 bool ConvOpBuilder::IsOpSupportedImpl(ModelBuilder& model_builder, const Node& node) {
-  NodeAttrHelper helper(node);
+  const auto& op_type = node.OpType();
+  const auto android_sdk_ver = model_builder.GetAndroidSdkVer();
+  if (android_sdk_ver < 29 && model_builder.UseNCHW()) {
+    LOGS_DEFAULT(VERBOSE) << op_type << " NCHW is only supported on Android API levle 29+, "
+                          << "actual API level: " << android_sdk_ver;
+    return false;
+  }
 
+  NodeAttrHelper helper(node);
   const auto group = helper.Get("group", 1);
   const auto weight_name = node.InputDefs()[1]->Name();
   if (Contains(model_builder.GetInitializerTensors(), weight_name)) {
@@ -970,9 +988,19 @@ bool ConvOpBuilder::IsOpSupportedImpl(ModelBuilder& model_builder, const Node& n
       LOGS_DEFAULT(VERBOSE) << "Only conv 2d is supported.";
       return false;
     }
-    if (group != 1 && tensor.dims()[1] != 1) {
-      LOGS_DEFAULT(VERBOSE) << "group != 1 is not supported";
-      return false;
+
+    const auto onnx_dilations = helper.Get("dilations", vector<int>{1, 1});
+    if (onnx_dilations != vector<int>{1, 1}) {
+      if (group != 1 && tensor.dims()[1] != 1) {
+        LOGS_DEFAULT(VERBOSE) << "dilation is not supported on grouped conv";
+        return false;
+      }
+
+      if (android_sdk_ver < 29) {
+        LOGS_DEFAULT(VERBOSE) << op_type << " dilations is only supported on Android API levle 29+, "
+                              << "actual API level: " << android_sdk_ver;
+        return false;
+      }
     }
   } else {
     LOGS_DEFAULT(VERBOSE) << "The weight of convolution must be known";
@@ -1022,14 +1050,24 @@ void ConvOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder, const Nod
   const auto& weight = node.InputDefs()[1]->Name();
   const auto& output = node.OutputDefs()[0]->Name();
 
-  bool conv2d = (group == 1);
-  const auto& weight_tensor = initializers.at(weight);
-  bool depthwise_conv2d = (weight_tensor.dims()[1] == 1);
+  bool conv_2d = false,
+       depthwise_conv_2d = false,
+       grouped_conv_2d = false;
+
+  if (group == 1) {
+    conv_2d = true;
+  } else {
+    const auto& weight_tensor = initializers.at(weight);
+    if ((weight_tensor.dims()[1] == 1))
+      depthwise_conv_2d = true;
+    else
+      grouped_conv_2d = true;
+  }
 
   // Pre-process weights
-  if (conv2d) {
+  if (conv_2d || grouped_conv_2d) {
     AddInitializerInNewLayout(model_builder, weight, L_0231);
-  } else {  // depthwise_conv2d
+  } else {  // depthwise_conv_2d
     AddInitializerInNewLayout(model_builder, weight, L_1230);
   }
 
@@ -1042,7 +1080,7 @@ void ConvOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder, const Nod
   } else {
     const auto weight_dimen = shaper[weight];
     Shape bias_dimen;
-    if (conv2d)
+    if (conv_2d || grouped_conv_2d)
       bias_dimen = {weight_dimen[0]};
     else
       bias_dimen = {weight_dimen[3]};
@@ -1105,30 +1143,39 @@ void ConvOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder, const Nod
   input_indices.push_back(model_builder.AddOperandFromScalar(onnx_strides[1]));
   input_indices.push_back(model_builder.AddOperandFromScalar(onnx_strides[0]));
 
-  if (!conv2d && depthwise_conv2d) {
-    int32_t depthwiseMultiplier = shaper[weight][3] / group;
-    input_indices.push_back(model_builder.AddOperandFromScalar(depthwiseMultiplier));
+  if (!conv_2d) {
+    if (depthwise_conv_2d) {
+      int32_t depthwiseMultiplier = shaper[weight][3] / group;
+      input_indices.push_back(model_builder.AddOperandFromScalar(depthwiseMultiplier));
+    } else {  // grouped_conv_2d
+      input_indices.push_back(model_builder.AddOperandFromScalar(group));
+    }
   }
 
   int32_t fuse_code = model_builder.FindActivation(node, *node.OutputDefs()[0]);
   input_indices.push_back(model_builder.AddOperandFromScalar(fuse_code));
 
-  // TODO support API 28
-  input_indices.push_back(model_builder.AddOperandFromScalar(use_nchw));
+  // nchw and dilations only supported on api 29+
+  if (model_builder.GetAndroidSdkVer() > 28) {
+    input_indices.push_back(model_builder.AddOperandFromScalar(use_nchw));
 
-  if (onnx_dilations[1] != 1 || onnx_dilations[0] != 1) {
-    input_indices.push_back(model_builder.AddOperandFromScalar(onnx_dilations[1]));
-    input_indices.push_back(model_builder.AddOperandFromScalar(onnx_dilations[0]));
+    // grouped conv 2d does not have dilation
+    if (!grouped_conv_2d &&
+        (onnx_dilations[1] != 1 || onnx_dilations[0] != 1)) {
+      input_indices.push_back(model_builder.AddOperandFromScalar(onnx_dilations[1]));
+      input_indices.push_back(model_builder.AddOperandFromScalar(onnx_dilations[0]));
+    }
   }
 
   int32_t operationCode;
-  if (conv2d) {
-    operationCode = ANEURALNETWORKS_CONV_2D;
+  if (conv_2d || grouped_conv_2d) {
+    operationCode = conv_2d ? ANEURALNETWORKS_CONV_2D
+                            : ANEURALNETWORKS_GROUPED_CONV_2D;
     shaper.Conv(input, weight,
                 onnx_pads, onnx_strides, onnx_dilations,
                 use_nchw,
                 output);
-  } else {  // depthwise_conv2d
+  } else {  // depthwise_conv_2d
     operationCode = ANEURALNETWORKS_DEPTHWISE_CONV_2D;
     shaper.DepthwiseConv(input, weight,
                          onnx_pads, onnx_strides, onnx_dilations,
