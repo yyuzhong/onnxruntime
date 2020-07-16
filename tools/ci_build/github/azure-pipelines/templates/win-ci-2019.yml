@@ -198,6 +198,7 @@ jobs:
           FolderPath: '$(Build.BinariesDirectory)\$(BuildConfig)'
           DisplayName: 'ESRP - Sign Native dlls'
           DoEsrp: ${{ parameters.DoEsrp }}
+          Pattern: '*.exe,*.dll'
 
       - template: win-esrp-dll.yml
         parameters:
@@ -261,4 +262,6 @@ jobs:
       parameters :
         condition : 'succeeded'
 
-    - template: clean-agent-build-directory-step.yml
+    - task: mspremier.PostBuildCleanup.PostBuildCleanup-task.PostBuildCleanup@3
+      displayName: 'Clean Agent Directories'
+      condition: always()
